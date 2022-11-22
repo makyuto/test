@@ -15,6 +15,7 @@ int oldV=1, newV=0;
 #include <SoftwareSerial.h>
 //UNO: (2, 3)
 SoftwareSerial mySerial(4, 6); // RX, TX
+float Isc = 0; 
 int pan = 90;
 int tilt = 120;
 int window_size = 0;
@@ -25,15 +26,16 @@ Servo servo_pan;
 Servo servo_tilt;
 int servo_min = 20;
 int servo_max = 160;
+int encoderValue = 0;
 
 const int buttonPin = 25;
 const int buttonPin2 = A10;
-const int relay = A8;
-const int Lphoto = A0;
-const int Rphoto = A1;
+const int relay = A11;
+const int Lphoto = A6;
+const int Rphoto = A7;
 int int_adc0, int_adc0_m, int_adc0_c;
 int int_adc1, int_adc1_m, int_adc1_c;     
-int int_left, int_right;
+int int_right, int_left;
 volatile int buttonState = LOW;
 volatile int lastButtonState = HIGH;
 volatile int buttonState2 = LOW;
@@ -61,6 +63,8 @@ int MIN_VALUE = 300;
 #define PWMD 5    //Motor D PWM
 #define DIRD1 A4  //26  
 #define DIRD2 A5  //27  //Motor D Direction
+#define Encoder_A 18
+#define Encoder_B 31
 
 #define MOTORA_FORWARD(pwm)    do{digitalWrite(DIRA1,LOW); digitalWrite(DIRA2,HIGH);analogWrite(PWMA,pwm);}while(0)
 #define MOTORA_STOP(x)         do{digitalWrite(DIRA1,LOW); digitalWrite(DIRA2,LOW); analogWrite(PWMA,0);}while(0)
@@ -93,7 +97,7 @@ int MIN_VALUE = 300;
 #define MAX_PWM   2000
 #define MIN_PWM   300
 
-int Motor_PWM = 86;
+int Motor_PWM = 100;
 
 
 //    ↑A-----B↑
@@ -268,30 +272,24 @@ void UART_Control()
       display.println(myString);
       display.display();
     }
-  }
 
-
-
-
-
-
-
-  //BT Control
-  /*
-    Receive data from app and translate it to motor movements
-  */
+    //BT Control
+    /*
+      Receive data from app and translate it to motor movements
+    */
   // BT Module on Serial 3 (D14 & D15)
   if (Serial3.available())
-  {
-    BT_Data = Serial3.read();
-    SERIAL.print(BT_Data);
-    Serial3.flush();
-    BT_alive_cnt = 100;
-    display.clearDisplay();
-    display.setCursor(0, 0);     // Start at top-left corner
-    display.println("BT_Data = ");
-    display.println(BT_Data);
-    display.display();
+    {
+      BT_Data = Serial3.read();
+      SERIAL.print(BT_Data);
+      Serial3.flush();
+      BT_alive_cnt = 100;
+      display.clearDisplay();
+      display.setCursor(0, 0);     // Start at top-left corner
+      display.println("BT_Data = ");
+      display.println(BT_Data);
+      display.display();
+    }
   }
 
   BT_alive_cnt = BT_alive_cnt - 1;
@@ -317,8 +315,6 @@ void UART_Control()
   }
 }
 
-
-
 /*Voltage Readings transmitter
 Sends them via Serial3*/
 void sendVolt(){
@@ -332,90 +328,8 @@ void sendVolt(){
     oldV=newV;
 }
 
-
-
-//Where the program starts
-void setup()
-{
-  SERIAL.begin(115200); // USB serial setup
-  SERIAL.println(F("Start"));
-  STOP(); // Stop the robot
-  Serial3.begin(9600); // BT serial setup
-  
-  
-  Serial.print("1");
-  //Pan=PL4=>48, Tilt=PL5=>47
-  servo_pan.attach(48);
-  servo_tilt.attach(47);
-  Serial.print("2");
-  //////////////////////////////////////////////
-  //OLED Setup//////////////////////////////////
-  Wire.setWireTimeout(5000,true);
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
-    Serial.println(F("SSD1306 allocation failed"));
-  }
-  Serial.print("3");
-  display.clearDisplay();
-  display.setTextSize(2);      // Normal 1:1 pixel scale
-  display.setTextColor(SSD1306_WHITE); // Draw white text
-  display.cp437(true);         // Use full 256 char 'Code Page 437' font
-  display.setCursor(0, 0);     // Start at top-left corner
-  display.println(F("AI Robot")); 
-  display.display();
-
-  Serial.print("4");
-
-  //Setup Voltage detector
-  pinMode(A0, INPUT);
-
-  //
-  pinMode(buttonPin, INPUT_PULLUP);
-  pinMode(buttonPin2, INPUT_PULLUP);
-  pinMode(relay, OUTPUT);
-  Wire.begin();
-  mpu.begin();
-  delay(1000);
-  mpu.calcGyroOffsets(); 
-  Serial.print("5");   
-
-  Serial.println("Initialize INA226");
-  Serial.println("-----------------------------------------------");
-  // Default INA226 address is 0x40
-  ina.begin();
-  // Configure INA226
-  ina.configure(INA226_AVERAGES_16, INA226_BUS_CONV_TIME_2116US, INA226_SHUNT_CONV_TIME_2116US, INA226_MODE_SHUNT_BUS_CONT);
-  // Calibrate INA226. Rshunt = 0.002 ohm, Max excepted current = 4A
-  ina.calibrate(0.002, 4);
-
-  // measure the sensors reading at ambient light intensity 
-  Serial.print("calibrate photoresistor in light");
-  delay(5000);        // delay 5000 ms
-  int_adc0=analogRead(Lphoto);   // Left sensor at ambient light intensity
-  int_adc1=analogRead(Rphoto);   // Right sensor at ambient light intensity
-  Serial.print("Left : ");
-  Serial.println(int_adc0);
-  Serial.print("Right : ");
-  Serial.println(int_adc1);
-  delay(1000); 
-  Serial.println("\nCalibration in progress, cover the sensors with your fingers (~ 8 sec to set)......");
-  Serial.println("************ Put Fingers *****************");
-  delay(5000);        // delay 5000 ms
-  Serial.println("********* START Calibration **************");
-  // measure the sensors reading at zero light intensity  
-  int_adc0_c=analogRead(Lphoto);   // Left sensor at zero light intensity
-  int_adc1_c=analogRead(Rphoto);   // Right sensor at zero light intensity
-  // calculate the slope of light intensity to ADC reading equations  
-  int_adc0_m=(int_adc0-int_adc0_c)/100;
-  int_adc1_m=(int_adc1-int_adc1_c)/100;
-  delay(10000);        // delay 10000 ms 
-  Serial.println("\n******** Completed! Remove your hands ********");
-  delay(4000);        // delay 4000 ms
-}
-  
-
-void loop() {
-  int buttonState = digitalRead(buttonPin);
-  if (buttonState == LOW && lastButtonState == HIGH) {
+//task1
+  void task_1() {
     delay(2000);
     mpu.update();   
     Serial.print("6");
@@ -551,78 +465,234 @@ void loop() {
     delay(8000);
     STOP();
     delay(2000);
-   
+  }
+
+  //task2
+  void task_2() {
+    Serial.println("get photo data:");
+    delay(2000);
+    int_left=(analogRead(Lphoto)-int_adc0_c)/int_adc0_m;
+    int_right=(analogRead(Rphoto)-int_adc1_c)/int_adc1_m; 
+    Serial.print("R : ");
+    Serial.print(int_right);
+    Serial.print(" L: ");
+    Serial.println(int_left);
+    float lastV = 0;
+    digitalWrite(relay, LOW);
+    float Voc = ina.readBusVoltage();
+    
+    float power = 0;
+    while (Voc > lastV - 0.01){
+      lastV = Voc;
+      digitalWrite(relay, HIGH);
+      Voc = ina.readBusVoltage();
+      Serial.print("volt: ");
+      Serial.println(Voc);
+      display.clearDisplay();
+      display.setCursor(0,0);
+      display.print(Voc);
+      display.println(" V");
+      display.display();
+      ADVANCE();
+      delay(10);
+    }
+    STOP();
+    delay(100);
+    BACK(MIN_PWM,MIN_PWM,MIN_PWM,MIN_PWM);
+    delay(700);
+    STOP();
+    delay(1000);
+
+    int_left=(analogRead(Lphoto)-int_adc0_c)/int_adc0_m;
+    int_right=(analogRead(Rphoto)-int_adc1_c)/int_adc1_m;
+    digitalWrite(relay, HIGH);
+    Voc = ina.readBusVoltage();
+    
+    //if left brighter
+    if((int_right > int_left)){ 
+      rotate_2();
+      delay(500);
+    }
+    STOP();
+    delay(1000);
+    //if right brighter
+    if ((int_left > int_right)){
+      rotate_1();
+      delay(500);
+    }
+
+    STOP();
+    delay(2000);
+
+    digitalWrite(relay, HIGH);
+    delay(2000);
+    Voc = ina.readBusVoltage();
+    Serial.print(Voc);
+    
+    digitalWrite(relay, LOW);
+    delay(2000);
+    Isc = ina.readShuntCurrent();
+    Serial.print(Isc);
+    
+    digitalWrite(relay, LOW);
+    power = Voc * Isc;
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.println("Power: ");
+    display.print(power);
+    display.println(" W");
+    display.display();
+    Serial.println(power);
+    digitalWrite(relay, HIGH);
+  }
+
+void Encoder_subroutine() {
+  //check the voltage of another encoder pin
+  if (digitalRead(Encoder_B)) {
+    encoderValue--;
+  }
+  else {
+    encoderValue++;
+  }
+}
+
+//Where the program starts
+void setup()
+{
+  SERIAL.begin(115200); // USB serial setup
+  SERIAL.println(F("Start"));
+  STOP(); // Stop the robot
+  Serial3.begin(9600); // BT serial setup
+  
+  
+  Serial.print("1");
+  //Pan=PL4=>48, Tilt=PL5=>47
+  servo_pan.attach(48);
+  servo_tilt.attach(47);
+  Serial.print("2");
+  //////////////////////////////////////////////
+  //OLED Setup//////////////////////////////////
+  Wire.setWireTimeout(5000,true);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
+    Serial.println(F("SSD1306 allocation failed"));
+  }
+  Serial.print("3");
+  display.clearDisplay();
+  display.setTextSize(2);      // Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE); // Draw white text
+  display.cp437(true);         // Use full 256 char 'Code Page 437' font
+  display.setCursor(0, 0);     // Start at top-left corner
+  display.println("AI Robot"); 
+  display.display();
+
+  Serial.print("4");
+
+  //Setup Voltage detector
+  pinMode(A0, INPUT);
+
+  //
+  pinMode(buttonPin, INPUT_PULLUP);
+  pinMode(buttonPin2, INPUT_PULLUP);
+  pinMode(Lphoto, INPUT);
+  pinMode(Rphoto, INPUT);
+  
+  pinMode(relay, OUTPUT);
+  digitalWrite(relay, HIGH);
+  Wire.begin();
+  mpu.begin();
+  delay(1000);
+  mpu.calcGyroOffsets(); 
+  Serial.print("5");   
+
+  Serial.println("Initialize INA226");
+  Serial.println("-----------------------------------------------");
+  // Default INA226 address is 0x40
+  ina.begin();
+  // Configure INA226
+  ina.configure(INA226_AVERAGES_64, INA226_BUS_CONV_TIME_2116US, INA226_SHUNT_CONV_TIME_2116US, INA226_MODE_SHUNT_BUS_CONT);
+  // Calibrate INA226. Rshunt = 0.002 ohm, Max excepted current = 4A
+  ina.calibrate(0.002, 4);
+
+  // measure the sensors reading at ambient light intensity 
+  Serial.print("calibrate photoresistor in light");
+  delay(1000);        // delay 5000 ms
+  int_adc0=analogRead(Lphoto);   // Left sensor at ambient light intensity
+  int_adc1=analogRead(Rphoto);   // Right sensor at ambient light intensity
+  Serial.print("Left : ");
+  Serial.println(int_adc0);
+  Serial.print("Right : ");
+  Serial.println(int_adc1);
+  Serial.println("\nCalibration in progress, cover the sensors with your fingers (~ 8 sec to set)......");
+  Serial.println("************ Put Fingers *****************");
+  delay(1000);        // delay 2000 ms
+  Serial.println("********* START Calibration **************");
+  // measure the sensors reading at zero light intensity  
+  int_adc0_c=analogRead(Lphoto);   // Left sensor at zero light intensity
+  int_adc1_c=analogRead(Rphoto);   // Right sensor at zero light intensity
+  // calculate the slope of light intensity to ADC reading equations  
+  int_adc0_m=(int_adc0-int_adc0_c)/100;
+  int_adc1_m=(int_adc1-int_adc1_c)/100;
+  Serial.println("\n******** Completed! Remove your hands ********");
+  attachInterrupt(digitalPinToInterrupt(Encoder_A), Encoder_subroutine, FALLING);
+}
+  
+
+void loop() {
+  int buttonState = digitalRead(buttonPin);
+  if (buttonState == LOW && lastButtonState == HIGH) {
+    task_1();
   }
   lastButtonState = buttonState;
 
   int buttonState2 = digitalRead(buttonPin2);
   if (buttonState2 == LOW && lastButtonState2 == HIGH) {
-    Serial.println("get photo data:");
-    delay(2000);
-    int_left=(analogRead(A0)-int_adc0_c)/int_adc0_m;
-    int_right=(analogRead(A1)-int_adc1_c)/int_adc1_m; 
-    Serial.print("L: ");
-    Serial.print(int_left);
-    Serial.print(" R: ");
-    Serial.println(int_right);
-    while (int_left > int_right + 1){
-      LEFT_2();
-      Serial.print("l");
-      delay(10);
-      int_left=(analogRead(A0)-int_adc0_c)/int_adc0_m;
-      int_right=(analogRead(A1)-int_adc1_c)/int_adc1_m;
-    }
-    STOP();
-    delay(1000);
-    while (int_right > int_left + 1){
-      RIGHT_2();
-      Serial.print("r");
-      delay(10);
-      int_left=(analogRead(A0)-int_adc0_c)/int_adc0_m;
-      int_right=(analogRead(A1)-int_adc1_c)/int_adc1_m;
-    }
-    STOP();
-    delay(1000);
-    float lastpower = 0;
-    digitalWrite(relay, LOW);
-    float Voc = ina.readBusVoltage();
-    float Isc = 0; 
-    float power = 0;
-    while (power >= lastpower){
-      lastpower = power;
-      digitalWrite(relay, LOW);
-      Voc = ina.readBusVoltage();
-      Serial.print("volt: ");
-      Serial.print(Voc);
-      digitalWrite(relay, HIGH);
-      Isc = ina.readShuntCurrent();
-      Serial.print(" current: ");
-      Serial.print(Isc);
-      power = Voc * Isc;
-      Serial.print(" power: ");
-      Serial.println(power);
-      display.clearDisplay();
-      display.setCursor(0,0);
-      display.print(power);
-      display.println(" W");
-      display.display();
-      ADVANCE();
-      delay(20);
-      STOP();
-    }
-    BACK(MIN_PWM,MIN_PWM,MIN_PWM,MIN_PWM);
-    delay(10);
-    STOP();
-    digitalWrite(relay, LOW);
-    Voc = ina.readBusVoltage();
-    digitalWrite(relay, HIGH);
-    Isc = ina.readShuntCurrent();
-    power = Voc * Isc;
-    display.clearDisplay();
-    display.setCursor(0,0);
-    display.println(power);
+    task_2();
   }
   lastButtonState2 = buttonState2;
+
+  int count = 0;
+  float original_angleZ = mpu.getAngleZ();
+  while(count < 100) {
+      ADVANCE();
+      delay(10);
+      count++;
+      STOP();
+      mpu.update();
+      while (mpu.getAngleZ() > original_angleZ + 2){
+        mpu.update();
+        rotate_2();
+        delay(10);
+        STOP();
+      }
+      while (mpu.getAngleZ() < original_angleZ - 2) {
+        mpu.update();
+        rotate_1();
+        delay(10);
+        STOP();
+      }
+    }
+  STOP();
+  delay(50);
+  while (mpu.getAngleZ() > original_angleZ + 2){
+        mpu.update();
+        rotate_2();
+        delay(10);
+        STOP();
+  }
+  while (mpu.getAngleZ() < original_angleZ - 2) {
+        mpu.update();
+        rotate_1();
+        delay(10);
+        STOP();
+  }
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println(encoderValue);
+  display.display();
+  Serial.println(encoderValue);
+  while (true) {
+    STOP();
+  }
     
   // run the code in every 20ms
   if (millis() > (time + 15)) {
