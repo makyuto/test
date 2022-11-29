@@ -5,6 +5,7 @@
 #include <Adafruit_SSD1306.h>
 #include <MPU6050_light.h>
 #include <INA226.h>
+//#include <Servo.h>
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
 
@@ -21,18 +22,21 @@ int tilt = 120;
 int window_size = 0;
 int BT_alive_cnt = 0;
 int voltCount = 0;
-#include <Servo.h>
-Servo servo_pan;
-Servo servo_tilt;
+//Servo servo_pan;
+//Servo servo_tilt;
 int servo_min = 20;
 int servo_max = 160;
 int encoderValue = 0;
+int message_list [2];
 
+//pins and vars
 const int buttonPin = 25;
 const int buttonPin2 = A10;
+const int buttonPin3 = 50;
 const int relay = A11;
 const int Lphoto = A6;
 const int Rphoto = A7;
+const int IRsensor = A8;
 int int_adc0, int_adc0_m, int_adc0_c;
 int int_adc1, int_adc1_m, int_adc1_c;     
 int int_right, int_left;
@@ -40,8 +44,23 @@ volatile int buttonState = LOW;
 volatile int lastButtonState = HIGH;
 volatile int buttonState2 = LOW;
 volatile int lastButtonState2 = HIGH;
+volatile int buttonState3 = LOW;
+volatile int lastButtonState3 = HIGH;
+#define echoPin_F 6
+#define trigPin_F 7
+#define echoPin_B 47
+#define trigPin_B 48
+#define echoPin_L 40
+#define trigPin_L 41
+#define echoPin_R 32
+#define trigPin_R 33
+#define wlsensor A0
+
+
+//MPU
 MPU6050 mpu(Wire);
 INA226 ina;
+
 
 unsigned long time;
 
@@ -97,7 +116,7 @@ int MIN_VALUE = 300;
 #define MAX_PWM   2000
 #define MIN_PWM   300
 
-int Motor_PWM = 100;
+int Motor_PWM = 70;
 
 
 //    ↑A-----B↑
@@ -119,9 +138,9 @@ void BACK(uint8_t pwm_A, uint8_t pwm_B, uint8_t pwm_C, uint8_t pwm_D)
 void ADVANCE()
 {
   MOTORA_FORWARD(Motor_PWM); 
-  MOTORB_BACKOFF(Motor_PWM);
+  MOTORB_BACKOFF(Motor_PWM + 10); //fix error
   MOTORC_FORWARD(Motor_PWM); 
-  MOTORD_BACKOFF(Motor_PWM);
+  MOTORD_BACKOFF(Motor_PWM + 10);
 }
 //    =A-----B↑
 //     |   ↖ |
@@ -234,8 +253,7 @@ void UART_Control()
   /****
    * Check if USB Serial data contain brackets
    */
-
-  if (SERIAL.available())
+  /* if (SERIAL.available())
   {
     char inputChar = SERIAL.read();
     if (inputChar == '(') { // Start loop when left bracket detected
@@ -272,6 +290,7 @@ void UART_Control()
       display.println(myString);
       display.display();
     }
+    */
 
     //BT Control
     /*
@@ -281,7 +300,6 @@ void UART_Control()
   if (Serial3.available())
     {
       BT_Data = Serial3.read();
-      SERIAL.print(BT_Data);
       Serial3.flush();
       BT_alive_cnt = 100;
       display.clearDisplay();
@@ -290,7 +308,7 @@ void UART_Control()
       display.println(BT_Data);
       display.display();
     }
-  }
+  //}
 
   BT_alive_cnt = BT_alive_cnt - 1;
   if (BT_alive_cnt <= 0) {
@@ -322,17 +340,15 @@ void sendVolt(){
     if(newV!=oldV) {
       if (!Serial3.available()) {
         Serial3.println(newV);
-        Serial.println(newV);
       }
     }
     oldV=newV;
 }
 
 //task1
-  void task_1() {
+void task_1() {
     delay(2000);
-    mpu.update();   
-    Serial.print("6");
+    mpu.update(); 
                   
     int start_t= millis();
 
@@ -379,7 +395,6 @@ void sendVolt(){
     original_angleZ = mpu.getAngleZ();
     count = 0;
     while(count < 200) {
-      Serial.print(millis());
       BACK(MIN_PWM,MIN_PWM,MIN_PWM,MIN_PWM);
       delay(10);
       count++;
@@ -398,7 +413,6 @@ void sendVolt(){
         STOP();
       }
     }
-    Serial.print("8");
     STOP();
     mpu.update();
     while (mpu.getAngleZ() > original_angleZ + 5){
@@ -420,13 +434,9 @@ void sendVolt(){
     int original_angleY = mpu.getAngleY();
     original_angleZ = mpu.getAngleZ();
 
-    Serial.print("original_angleZ");
-    Serial.println(original_angleZ);
     
     while (mpu.getAngleZ() > original_angleZ - 90) {
       mpu.update();
-      Serial.print("r1:");
-      Serial.println(mpu.getAngleZ());
       rotate_2();
       delay(10);
       STOP();
@@ -435,7 +445,6 @@ void sendVolt(){
         break;
       }
     }
-    Serial.print("9");
     STOP();
     delay(2000);
 
@@ -465,10 +474,10 @@ void sendVolt(){
     delay(8000);
     STOP();
     delay(2000);
-  }
+}
 
-  //task2
-  void task_2() {
+//task2
+void task_2() {
     Serial.println("get photo data:");
     delay(2000);
     int_left=(analogRead(Lphoto)-int_adc0_c)/int_adc0_m;
@@ -544,7 +553,14 @@ void sendVolt(){
     display.display();
     Serial.println(power);
     digitalWrite(relay, HIGH);
-  }
+}
+
+void displayMessage(String x){
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println(x);
+  display.display();
+}
 
 void Encoder_subroutine() {
   //check the voltage of another encoder pin
@@ -556,27 +572,350 @@ void Encoder_subroutine() {
   }
 }
 
+//ps2 mouse set
+unsigned long millisStart;
+long MouseX = 0;
+long MouseY = 0;
+char stat,x,y;
+
+int posX = 2; //starting coordinate
+int posY = 2;
+
+byte PS2ReadByte = 0;
+
+#define PS2CLOCK  10
+#define PS2DATA   11
+
+void PS2GoHi(int pin){
+  pinMode(pin, INPUT);
+  digitalWrite(pin, HIGH);
+}
+
+void PS2GoLo(int pin){
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, LOW);
+}
+
+void PS2Write(unsigned char data){
+  unsigned char parity=1;
+
+  PS2GoHi(PS2DATA);
+  PS2GoHi(PS2CLOCK);
+  delayMicroseconds(300);
+  PS2GoLo(PS2CLOCK);
+  delayMicroseconds(300);
+  PS2GoLo(PS2DATA);
+  delayMicroseconds(10);
+  PS2GoHi(PS2CLOCK);
+
+  while(digitalRead(PS2CLOCK)==HIGH);
+
+  for(int i=0; i<8; i++){
+    if(data&0x01) PS2GoHi(PS2DATA);
+    else PS2GoLo(PS2DATA);
+    while(digitalRead(PS2CLOCK)==LOW);
+    while(digitalRead(PS2CLOCK)==HIGH);
+    parity^=(data&0x01);
+    data=data>>1;
+  }
+
+  if(parity) PS2GoHi(PS2DATA);
+  else PS2GoLo(PS2DATA);
+
+  while(digitalRead(PS2CLOCK)==LOW);
+  while(digitalRead(PS2CLOCK)==HIGH);
+
+  PS2GoHi(PS2DATA);
+  delayMicroseconds(50);
+
+  while(digitalRead(PS2CLOCK)==HIGH);
+  while((digitalRead(PS2CLOCK)==LOW)||(digitalRead(PS2DATA)==LOW));
+
+  PS2GoLo(PS2CLOCK);
+}
+
+unsigned char PS2Read(void){
+  unsigned char data=0, bit=1;
+
+  PS2GoHi(PS2CLOCK);
+  PS2GoHi(PS2DATA);
+  delayMicroseconds(50);
+  while(digitalRead(PS2CLOCK)==HIGH);
+
+  delayMicroseconds(5);
+  while(digitalRead(PS2CLOCK)==LOW);
+
+  for(int i=0; i<8; i++){
+    while(digitalRead(PS2CLOCK)==HIGH);
+    if(digitalRead(PS2DATA)==HIGH) data|=bit;
+    while(digitalRead(PS2CLOCK)==LOW);
+    bit=bit<<1;
+  }
+
+  while(digitalRead(PS2CLOCK)==HIGH);
+  while(digitalRead(PS2CLOCK)==LOW);
+  while(digitalRead(PS2CLOCK)==HIGH);
+  while(digitalRead(PS2CLOCK)==LOW);
+
+  PS2GoLo(PS2CLOCK);
+
+  return data;
+}
+
+void PS2MouseInit(void){
+  PS2Write(0xFF);
+  for(int i=0; i<3; i++) PS2Read();
+  PS2Write(0xF0);
+  PS2Read();
+  delayMicroseconds(100);
+}
+
+void PS2MousePos(char &stat, char &x, char &y){
+  PS2Write(0xEB);
+  PS2Read();
+  stat=PS2Read();
+  x=PS2Read();
+  y=PS2Read();
+}
+
+void spray() {
+  digitalWrite(relay,LOW); // on
+  delay(1000);
+  digitalWrite(relay,HIGH);
+  delay(500);
+  digitalWrite(relay,LOW); //off
+  delay(2000);
+  digitalWrite(relay,HIGH);
+}
+
+long measure_distance(char dir) {
+  long duration;
+  // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
+  // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
+  if (dir == 'F'){
+  digitalWrite(trigPin_F, LOW); 
+  delayMicroseconds(2); 
+  digitalWrite(trigPin_F, HIGH);
+  delayMicroseconds(10); 
+  digitalWrite(trigPin_F, LOW);
+  duration = pulseIn(echoPin_F, HIGH);
+  }
+  else if (dir == 'B') {
+  digitalWrite(trigPin_B, LOW); 
+  delayMicroseconds(2); 
+  digitalWrite(trigPin_B, HIGH);
+  delayMicroseconds(10); 
+  digitalWrite(trigPin_B, LOW);
+  duration = pulseIn(echoPin_B, HIGH);
+  }
+  else if (dir == 'L') {
+  digitalWrite(trigPin_L, LOW); 
+  delayMicroseconds(2); 
+  digitalWrite(trigPin_L, HIGH);
+  delayMicroseconds(10); 
+  digitalWrite(trigPin_L, LOW);
+  duration = pulseIn(echoPin_L, HIGH);
+  }
+  else if (dir == 'R') {
+  digitalWrite(trigPin_R, LOW); 
+  delayMicroseconds(2); 
+  digitalWrite(trigPin_R, HIGH);
+  delayMicroseconds(10); 
+  digitalWrite(trigPin_R, LOW);
+  duration = pulseIn(echoPin_R, HIGH);
+  }
+  long distance_in_cm = (duration/2.0) / 29.1;
+  return distance_in_cm;
+}
+
+int state[] = {0,0,1,posX,posY};
+
+void sendtopi() {
+  state[3] = posX;
+  state[4] = posY;
+ 
+}
+
+
+void block_warning(){
+  state[1] = 1;
+  sendtopi();
+}
+
+void waterlevelcheck(){
+  if (analogRead(wlsensor) < 600){
+    
+  }
+}
+
+void ADVANCE_2(int d, int check){ 
+  // distance = x * 10cm
+  STOP();
+  delay(200);
+  mpu.update();
+  float original_angleZ = mpu.getAngleZ();
+  MouseY = 0; //62.5 = 1cm
+  MouseX = 0;
+  while(MouseY <  625 * d) {
+    if(millis() < millisStart){
+        millisStart = millis();
+    }
+    if(millis() - millisStart > 100){
+      displayMessage(String(posX)+","+String(posY)+"\n"+String(MouseX)+String(MouseY));
+      PS2MousePos(stat,x,y);
+      MouseX += x;
+      MouseY += y;
+      if (abs(original_angleZ/360) < 5){
+        posY = 2 + MouseY/625 ; 
+      }
+      else if (abs(original_angleZ/360 - 90) < 5){
+        posX = 2 - MouseY/625 ; 
+      }
+      else if (abs(original_angleZ/360 + 90) < 5){
+        posX = 2 + MouseY/625 ;
+      }
+      else if (abs(original_angleZ/360 - 180) < 5){
+        posY = 2 - MouseY/625 ; 
+      }
+      sendtopi();
+      
+      if (measure_distance('F') <= 25 || measure_distance('F') == 1200){
+        STOP();
+        delay(5000);
+        if (measure_distance('F') <= 25 || measure_distance('F') == 1200){
+          block_warning();
+        }
+      }
+      else {
+        state[1] = 0;
+        ADVANCE();
+        delay(50);
+        STOP();
+        mpu.update();
+        while (mpu.getAngleZ() > original_angleZ + 2){
+          mpu.update();
+          rotate_2();
+          delay(20);
+          STOP();
+        }
+        while (mpu.getAngleZ() < original_angleZ - 2) {
+          mpu.update();
+          rotate_1();
+          delay(20);
+          STOP();
+        }
+      }
+      millisStart = millis();
+      STOP();
+    }
+  }
+  STOP();
+  delay(50);
+  if (check > 0){
+      while (MouseX >  200){ 
+        LEFT_2();
+        delay(20);
+        STOP();
+      }
+      while (MouseX >  200){ 
+        LEFT_2();
+        delay(20);
+        STOP();
+      }
+      while (mpu.getAngleZ() > original_angleZ){
+        mpu.update();
+        rotate_2();
+        delay(10);
+        STOP();
+      }
+      while (mpu.getAngleZ() < original_angleZ){
+        mpu.update();
+        rotate_1();
+        delay(10);
+        STOP();
+      }
+  }
+  STOP();
+  delay(100);
+}
+
+
+void ROTATE_L (){
+  mpu.update();
+  int original_angleZ = mpu.getAngleZ();
+  while (mpu.getAngleZ() > original_angleZ - 90) {
+      mpu.update();
+      STOP();
+      if (measure_distance('L') <= 25 || measure_distance('L') == 1200){
+        STOP();
+        delay(5000);
+        if (measure_distance('L') <= 25 || measure_distance('L') == 1200){
+          block_warning();
+        }
+      }
+      else {
+        state[1] = 0;
+        rotate_2();
+        delay(50);
+      }
+      if (mpu.getAngleZ() <= original_angleZ - 90) {
+        STOP();
+        break;
+      }
+    }
+    STOP();
+}
+
+void ROTATE_R (){
+  mpu.update();
+  int original_angleZ = mpu.getAngleZ();
+  while (mpu.getAngleZ() < original_angleZ + 90) {
+      mpu.update();
+      STOP();
+      if (measure_distance('R') <= 25 || measure_distance('R') == 1200){
+        STOP();
+        delay(5000);
+        if (measure_distance('R') <= 25 || measure_distance('R') == 1200){
+          block_warning();
+        }
+      }
+      else {
+        state[1] = 0;
+        rotate_1();
+        delay(50);
+      }
+      if (mpu.getAngleZ() >= original_angleZ + 90) {
+        STOP();
+        break;
+      }
+    }
+    STOP();
+}
+
+void cleanall(){
+  
+}
+
+
 //Where the program starts
 void setup()
 {
+  
   SERIAL.begin(115200); // USB serial setup
-  SERIAL.println(F("Start"));
   STOP(); // Stop the robot
   Serial3.begin(9600); // BT serial setup
+
+    
   
-  
-  Serial.print("1");
   //Pan=PL4=>48, Tilt=PL5=>47
-  servo_pan.attach(48);
-  servo_tilt.attach(47);
-  Serial.print("2");
+  //servo_pan.attach(48);
+  //servo_tilt.attach(47);
   //////////////////////////////////////////////
   //OLED Setup//////////////////////////////////
   Wire.setWireTimeout(5000,true);
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
     Serial.println(F("SSD1306 allocation failed"));
   }
-  Serial.print("3");
   display.clearDisplay();
   display.setTextSize(2);      // Normal 1:1 pixel scale
   display.setTextColor(SSD1306_WHITE); // Draw white text
@@ -584,8 +923,6 @@ void setup()
   display.setCursor(0, 0);     // Start at top-left corner
   display.println("AI Robot"); 
   display.display();
-
-  Serial.print("4");
 
   //Setup Voltage detector
   pinMode(A0, INPUT);
@@ -602,10 +939,7 @@ void setup()
   mpu.begin();
   delay(1000);
   mpu.calcGyroOffsets(); 
-  Serial.print("5");   
 
-  Serial.println("Initialize INA226");
-  Serial.println("-----------------------------------------------");
   // Default INA226 address is 0x40
   ina.begin();
   // Configure INA226
@@ -614,8 +948,9 @@ void setup()
   ina.calibrate(0.002, 4);
 
   // measure the sensors reading at ambient light intensity 
+  /*
   Serial.print("calibrate photoresistor in light");
-  delay(1000);        // delay 5000 ms
+  //delay(1000);        
   int_adc0=analogRead(Lphoto);   // Left sensor at ambient light intensity
   int_adc1=analogRead(Rphoto);   // Right sensor at ambient light intensity
   Serial.print("Left : ");
@@ -624,7 +959,7 @@ void setup()
   Serial.println(int_adc1);
   Serial.println("\nCalibration in progress, cover the sensors with your fingers (~ 8 sec to set)......");
   Serial.println("************ Put Fingers *****************");
-  delay(1000);        // delay 2000 ms
+  //delay(1000); 
   Serial.println("********* START Calibration **************");
   // measure the sensors reading at zero light intensity  
   int_adc0_c=analogRead(Lphoto);   // Left sensor at zero light intensity
@@ -634,8 +969,31 @@ void setup()
   int_adc1_m=(int_adc1-int_adc1_c)/100;
   Serial.println("\n******** Completed! Remove your hands ********");
   attachInterrupt(digitalPinToInterrupt(Encoder_A), Encoder_subroutine, FALLING);
-}
+  */
   
+  //ps2mouse setup
+  PS2GoHi(PS2CLOCK);
+  PS2GoHi(PS2DATA);
+  Serial.begin(115200);
+  while(!Serial); 
+  PS2MouseInit();
+  millisStart=millis();
+  MouseX = 0;
+  MouseY = 0;
+  
+  // ultrasonic 
+  pinMode(echoPin_F, INPUT);
+  pinMode(trigPin_F, OUTPUT);
+  pinMode(echoPin_B, INPUT);
+  pinMode(trigPin_B, OUTPUT);
+  pinMode(echoPin_L, INPUT);
+  pinMode(trigPin_L, OUTPUT);
+  pinMode(echoPin_R, INPUT);
+  pinMode(trigPin_R, OUTPUT);
+}
+
+int c = 0;
+
 
 void loop() {
   int buttonState = digitalRead(buttonPin);
@@ -649,55 +1007,49 @@ void loop() {
     task_2();
   }
   lastButtonState2 = buttonState2;
+  
+  int dest_x;
+  int dest_y;
 
-  int count = 0;
-  float original_angleZ = mpu.getAngleZ();
-  while(count < 100) {
-      ADVANCE();
-      delay(10);
-      count++;
-      STOP();
-      mpu.update();
-      while (mpu.getAngleZ() > original_angleZ + 2){
-        mpu.update();
-        rotate_2();
-        delay(10);
-        STOP();
-      }
-      while (mpu.getAngleZ() < original_angleZ - 2) {
-        mpu.update();
-        rotate_1();
-        delay(10);
-        STOP();
-      }
+  while (!Serial.available()){
+    int buttonState3 = digitalRead(buttonPin3);
+    if (buttonState3 == LOW && lastButtonState3 == HIGH) {
+      cleanall();
     }
-  STOP();
-  delay(50);
-  while (mpu.getAngleZ() > original_angleZ + 2){
-        mpu.update();
-        rotate_2();
-        delay(10);
-        STOP();
   }
-  while (mpu.getAngleZ() < original_angleZ - 2) {
-        mpu.update();
-        rotate_1();
-        delay(10);
-        STOP();
+  if (Serial.available() > 0){
+    String recv = Serial.readString();
+    dest_x = (recv[0]-'0')*10 + (recv[1]-'0');
+    dest_y = (recv[2]-'0')*10 + (recv[3]-'0');
+    state[2] = 0;
   }
-  display.clearDisplay();
-  display.setCursor(0,0);
-  display.println(encoderValue);
-  display.display();
-  Serial.println(encoderValue);
-  while (true) {
-    STOP();
+  ADVANCE_2(dest_y - 4, 0);
+  ROTATE_L();
+  ADVANCE_2(dest_x, 0);
+  state[0] = 1; 
+  sendtopi();
+  time = millis();
+  while(millis() > time + 10000){
+    if (digitalRead(IRsensor) == LOW){
+      spray();
+    }
   }
-    
+  delay(500);
+  ROTATE_R();
+  ROTATE_R();
+  state[0] = 0;
+
+  ADVANCE_2(dest_x, 0);
+  ROTATE_R();
+  ADVANCE_2(dest_y - 4, 0);
+  state[3] = 1;
+  sendtopi();
+   
   // run the code in every 20ms
   if (millis() > (time + 15)) {
     voltCount++;
     time = millis();
+    
     UART_Control(); //get USB and BT serial data
 
     //constrain the servo movement
@@ -705,13 +1057,12 @@ void loop() {
     //tilt = constrain(tilt, servo_min, servo_max);
     
     //send signal to servo
-    servo_pan.write(pan);
-    servo_tilt.write(tilt);
+    //servo_pan.write(pan);
+    //servo_tilt.write(tilt);
   }
   if (voltCount>=5){
     voltCount=0;
     //sendVolt();
   }
-  
   
 }
