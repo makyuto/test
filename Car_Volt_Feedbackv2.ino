@@ -728,12 +728,15 @@ long measure_distance(char dir) {
   return distance_in_cm;
 }
 
-int state[] = {0,0,1,posX,posY};
+int state[] = {0,0,1,0,posX,posY};
 
 void sendtopi() {
-  state[3] = posX;
-  state[4] = posY;
- 
+  state[4] = posX;
+  state[5] = posY;
+  char x[8];
+  sprintf(x, "%1d%1d%1d%1d%2d%2d",state[0],state[1],state[2],state[3],state[4],state[5]);
+  Serial.print(x);
+  Serial.flush();
 }
 
 
@@ -744,7 +747,11 @@ void block_warning(){
 
 void waterlevelcheck(){
   if (analogRead(wlsensor) < 600){
-    
+    state[3] = 1;
+    sendtopi();
+  }
+  else{
+    state[3] = 0;
   }
 }
 
@@ -1021,12 +1028,12 @@ void loop() {
     String recv = Serial.readString();
     dest_x = (recv[0]-'0')*10 + (recv[1]-'0');
     dest_y = (recv[2]-'0')*10 + (recv[3]-'0');
-    state[2] = 0;
   }
   ADVANCE_2(dest_y - 4, 0);
   ROTATE_L();
   ADVANCE_2(dest_x, 0);
   state[0] = 1; 
+  state[2] = 0;
   sendtopi();
   time = millis();
   while(millis() > time + 10000){
@@ -1037,12 +1044,14 @@ void loop() {
   delay(500);
   ROTATE_R();
   ROTATE_R();
-  state[0] = 0;
+  
 
   ADVANCE_2(dest_x, 0);
   ROTATE_R();
   ADVANCE_2(dest_y - 4, 0);
-  state[3] = 1;
+  state[2] = 1;
+  state[0] = 0;
+  
   sendtopi();
    
   // run the code in every 20ms
