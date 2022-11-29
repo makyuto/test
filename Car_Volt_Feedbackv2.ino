@@ -734,7 +734,7 @@ void sendtopi() {
   state[4] = posX;
   state[5] = posY;
   char x[8];
-  sprintf(x, "%1d%1d%1d%1d%2d%2d",state[0],state[1],state[2],state[3],state[4],state[5]);
+  sprintf(x, "%1d%1d%1d%1d%02d%02d",state[0],state[1],state[2],state[3],state[4],state[5]);
   Serial.print(x);
   Serial.flush();
 }
