@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -116,7 +115,7 @@ int MIN_VALUE = 300;
 #define MAX_PWM   2000
 #define MIN_PWM   300
 
-int Motor_PWM = 70;
+int Motor_PWM = 50;
 
 
 //    ↑A-----B↑
@@ -137,10 +136,10 @@ void BACK(uint8_t pwm_A, uint8_t pwm_B, uint8_t pwm_C, uint8_t pwm_D)
 //    ↓C-----D↓
 void ADVANCE()
 {
-  MOTORA_FORWARD(Motor_PWM); 
-  MOTORB_BACKOFF(Motor_PWM + 10); //fix error
-  MOTORC_FORWARD(Motor_PWM); 
-  MOTORD_BACKOFF(Motor_PWM + 10);
+  MOTORA_FORWARD(Motor_PWM * 1.05); 
+  MOTORB_BACKOFF(Motor_PWM * 0.9); //fix error
+  MOTORC_FORWARD(Motor_PWM * 1.05); 
+  MOTORD_BACKOFF(Motor_PWM * 0.9);
 }
 //    =A-----B↑
 //     |   ↖ |
@@ -536,7 +535,7 @@ void task_2() {
     digitalWrite(relay, HIGH);
     delay(2000);
     Voc = ina.readBusVoltage();
-    Serial.print(Voc);
+    //Serial.print(Voc);
     
     digitalWrite(relay, LOW);
     delay(2000);
@@ -733,9 +732,9 @@ int state[] = {0,0,1,0,posX,posY};
 void sendtopi() {
   state[4] = posX;
   state[5] = posY;
-  char x[8];
-  sprintf(x, "%1d%1d%1d%1d%02d%02d",state[0],state[1],state[2],state[3],state[4],state[5]);
-  Serial.print(x);
+  char s[8];
+  sprintf(s, "%1d%1d%1d%1d%02d%02d",state[0],state[1],state[2],state[3],state[4],state[5]);
+  Serial.print(s);
   Serial.flush();
 }
 
@@ -743,6 +742,7 @@ void sendtopi() {
 void block_warning(){
   state[1] = 1;
   sendtopi();
+  displayMessage("Blocked");
 }
 
 void waterlevelcheck(){
@@ -755,6 +755,84 @@ void waterlevelcheck(){
   }
 }
 
+void ADVANCE_3y(int d){
+  long start = millis();
+  long c = 0;
+  int t = 100;
+  int cmtime = 400;
+  while (c < d * cmtime){
+    if (measure_distance('F') <= 20){
+      block_warning();
+      STOP();
+      delay(5000);
+      if (measure_distance('R') >= 40){
+          RIGHT_2();
+          delay(1000);
+          STOP();
+      }
+      else{
+         displayMessage("Blocked!");
+      }
+     }
+    else{
+      state[1] = 0;
+      ADVANCE();
+      delay(t);
+      c += t;
+      if (c >= cmtime && c/cmtime == 0){
+        posY += 1;
+      }
+    }
+    if (millis()> (start + 1000)){
+      display.clearDisplay();
+      displayMessage(String(posY));
+      sendtopi();
+      start = millis();
+    }
+  }
+  STOP();
+  delay(1000);
+}
+
+void ADVANCE_3x(int d){
+  long start = millis();
+  long c = 0;
+  int t = 100;
+  int cmtime = 400;
+  while (c < d * cmtime){
+    if (measure_distance('F') <= 20){
+      block_warning();
+      STOP();
+      delay(5000);
+        if (measure_distance('R') >= 40){
+          RIGHT_2();
+          delay(1000);
+          STOP();
+        }
+        else{
+          displayMessage("Blocked!");
+        }
+    }
+    else{
+      state[1] = 0;
+      ADVANCE();
+      delay(t);
+      c += t;
+      if ((c >= cmtime) && (c/cmtime == 0)){
+        posX += 1;
+      }
+    }
+    if (millis()>start + 1000){
+      sendtopi();
+      start = millis();
+    }
+  }
+  STOP();
+  delay(1000);
+}
+
+
+
 void ADVANCE_2(int d, int check){ 
   // distance = x * 10cm
   STOP();
@@ -763,88 +841,83 @@ void ADVANCE_2(int d, int check){
   float original_angleZ = mpu.getAngleZ();
   MouseY = 0; //62.5 = 1cm
   MouseX = 0;
+  int original_X = posX;
+  int original_Y = posY;
+  millisStart = millis();
+  int c = 0;
   while(MouseY <  625 * d) {
-    if(millis() < millisStart){
-        millisStart = millis();
-    }
-    if(millis() - millisStart > 100){
-      displayMessage(String(posX)+","+String(posY)+"\n"+String(MouseX)+String(MouseY));
-      PS2MousePos(stat,x,y);
-      MouseX += x;
-      MouseY += y;
-      if (abs(original_angleZ/360) < 5){
-        posY = 2 + MouseY/625 ; 
-      }
-      else if (abs(original_angleZ/360 - 90) < 5){
-        posX = 2 - MouseY/625 ; 
-      }
-      else if (abs(original_angleZ/360 + 90) < 5){
-        posX = 2 + MouseY/625 ;
-      }
-      else if (abs(original_angleZ/360 - 180) < 5){
-        posY = 2 - MouseY/625 ; 
-      }
-      sendtopi();
-      
-      if (measure_distance('F') <= 25 || measure_distance('F') == 1200){
+      if (measure_distance('F') <= 20 || measure_distance('F') == 1200){
         STOP();
+        displayMessage("Blocked!");
         delay(5000);
-        if (measure_distance('F') <= 25 || measure_distance('F') == 1200){
+        if (measure_distance('F') <= 20 || measure_distance('F') == 1200){
           block_warning();
+          if (measure_distance('R') >= 40){
+            RIGHT_2();
+            delay(2000);
+          }
+          else if (measure_distance('L') >= 40){
+            LEFT_2();
+            delay(2000);
+          } 
+        }
+        else {
+          continue;
         }
       }
       else {
         state[1] = 0;
         ADVANCE();
-        delay(50);
+        delay(40);
         STOP();
+        delay(10);
         mpu.update();
-        while (mpu.getAngleZ() > original_angleZ + 2){
+      }
+      if(millis() - millisStart > 100){
+        c = (c+1)%10;
+        PS2MousePos(stat,x,y);
+        MouseX -= x;
+        MouseY -= y;
+        if (abs(original_angleZ/360) < 30){
+          posY = original_Y - MouseY/625 ; 
+        }
+        else if (abs(original_angleZ/360 - 90) < 30){
+          posX = original_X + MouseY/625 ; 
+        }
+        else if (abs(original_angleZ/360 + 90) < 30){
+          posX = original_X - MouseY/625 ;
+        }
+        else if (abs(original_angleZ/360 - 180) < 30){
+          posY = original_Y + MouseY/625 ; 
+        }
+        if (c == 9){
+          displayMessage(String(posX)+","+String(posY)+"\n"+String(MouseY));
+          sendtopi();
+          delay(100);
+        }
+      
+      
+        /*while (mpu.getAngleZ() > original_angleZ + 10){
           mpu.update();
           rotate_2();
-          delay(20);
+          delay(50);
           STOP();
         }
-        while (mpu.getAngleZ() < original_angleZ - 2) {
+        while (mpu.getAngleZ() < original_angleZ - 10) {
           mpu.update();
           rotate_1();
-          delay(20);
+          delay(50);
           STOP();
         }
+        */
       }
       millisStart = millis();
       STOP();
-    }
   }
   STOP();
-  delay(50);
-  if (check > 0){
-      while (MouseX >  200){ 
-        LEFT_2();
-        delay(20);
-        STOP();
-      }
-      while (MouseX >  200){ 
-        LEFT_2();
-        delay(20);
-        STOP();
-      }
-      while (mpu.getAngleZ() > original_angleZ){
-        mpu.update();
-        rotate_2();
-        delay(10);
-        STOP();
-      }
-      while (mpu.getAngleZ() < original_angleZ){
-        mpu.update();
-        rotate_1();
-        delay(10);
-        STOP();
-      }
-  }
-  STOP();
-  delay(100);
+  delay(1000);
 }
+
 
 
 void ROTATE_L (){
@@ -853,18 +926,9 @@ void ROTATE_L (){
   while (mpu.getAngleZ() > original_angleZ - 90) {
       mpu.update();
       STOP();
-      if (measure_distance('L') <= 25 || measure_distance('L') == 1200){
-        STOP();
-        delay(5000);
-        if (measure_distance('L') <= 25 || measure_distance('L') == 1200){
-          block_warning();
-        }
-      }
-      else {
-        state[1] = 0;
-        rotate_2();
-        delay(50);
-      }
+      delay(100);
+      rotate_2();
+      delay(50);
       if (mpu.getAngleZ() <= original_angleZ - 90) {
         STOP();
         break;
@@ -879,18 +943,9 @@ void ROTATE_R (){
   while (mpu.getAngleZ() < original_angleZ + 90) {
       mpu.update();
       STOP();
-      if (measure_distance('R') <= 25 || measure_distance('R') == 1200){
-        STOP();
-        delay(5000);
-        if (measure_distance('R') <= 25 || measure_distance('R') == 1200){
-          block_warning();
-        }
-      }
-      else {
-        state[1] = 0;
-        rotate_1();
-        delay(50);
-      }
+      delay(100);
+      rotate_1();
+      delay(50);
       if (mpu.getAngleZ() >= original_angleZ + 90) {
         STOP();
         break;
@@ -900,7 +955,17 @@ void ROTATE_R (){
 }
 
 void cleanall(){
-  
+  digitalWrite(relay, LOW);
+  delay(2000);
+  digitalWrite(relay,HIGH);
+  ROTATE_R();ROTATE_R();ROTATE_R();ROTATE_R();
+  ADVANCE();
+  delay(3000);
+  ROTATE_R();ROTATE_R();ROTATE_R();ROTATE_R();
+  ADVANCE();
+  delay(3000);
+  digitalWrite(relay,LOW);
+  delay(2000);
 }
 
 
@@ -908,7 +973,7 @@ void cleanall(){
 void setup()
 {
   
-  SERIAL.begin(115200); // USB serial setup
+  SERIAL.begin(57600); // USB serial setup
   STOP(); // Stop the robot
   Serial3.begin(9600); // BT serial setup
 
@@ -981,7 +1046,6 @@ void setup()
   //ps2mouse setup
   PS2GoHi(PS2CLOCK);
   PS2GoHi(PS2DATA);
-  Serial.begin(115200);
   while(!Serial); 
   PS2MouseInit();
   millisStart=millis();
@@ -1003,11 +1067,6 @@ int c = 0;
 
 
 void loop() {
-  int buttonState = digitalRead(buttonPin);
-  if (buttonState == LOW && lastButtonState == HIGH) {
-    task_1();
-  }
-  lastButtonState = buttonState;
 
   int buttonState2 = digitalRead(buttonPin2);
   if (buttonState2 == LOW && lastButtonState2 == HIGH) {
@@ -1017,32 +1076,50 @@ void loop() {
   
   int dest_x;
   int dest_y;
-
+  displayMessage("waiting");
   while (!Serial.available()){
-    int buttonState3 = digitalRead(buttonPin3);
-    if (buttonState3 == LOW && lastButtonState3 == HIGH) {
+    int buttonState = digitalRead(buttonPin);
+    if (buttonState == LOW && lastButtonState == HIGH) {
       cleanall();
     }
+    lastButtonState = buttonState;
   }
   if (Serial.available() > 0){
     String recv = Serial.readString();
     dest_x = (recv[0]-'0')*10 + (recv[1]-'0');
     dest_y = (recv[2]-'0')*10 + (recv[3]-'0');
   }
-  ADVANCE_2(dest_y - 4, 0);
-  ROTATE_L();
-  ADVANCE_2(dest_x, 0);
-  state[0] = 1; 
+  display.clearDisplay();
+  displayMessage("go"+dest_x+dest_y);
+  delay(1000);
   state[2] = 0;
+  
+  //ADVANCE_2(dest_y - 4, 0);
+  ADVANCE_3y(dest_y - 4);
+  displayMessage("rotate");
+  delay(1000);
+  //ROTATE_L();
+  rotate_1();
+  delay(1200);
+  
+  //ADVANCE_2(dest_x, 0);
+  ADVANCE_3x(dest_x);
+  state[0] = 1; 
   sendtopi();
-  time = millis();
-  while(millis() > time + 10000){
+  displayMessage("Arrived");
+  long t = millis();
+  while(millis() < t + 20000){
+    STOP();
     if (digitalRead(IRsensor) == LOW){
       spray();
     }
   }
+  
   delay(500);
+  displayMessage("returning");
+  state[0] = 0;
   ROTATE_R();
+  delay(1000);
   ROTATE_R();
   
 
@@ -1050,15 +1127,13 @@ void loop() {
   ROTATE_R();
   ADVANCE_2(dest_y - 4, 0);
   state[2] = 1;
-  state[0] = 0;
-  
+  delay(1000);
   sendtopi();
-   
+}
   // run the code in every 20ms
-  if (millis() > (time + 15)) {
+  /*if (millis() > (time + 15)) {
     voltCount++;
     time = millis();
-    
     UART_Control(); //get USB and BT serial data
 
     //constrain the servo movement
@@ -1073,5 +1148,5 @@ void loop() {
     voltCount=0;
     //sendVolt();
   }
+  */
   
-}
